@@ -1,0 +1,62 @@
+# =============================================================
+#  Balu Mall Project — .gitignore
+# =============================================================
+
+# -----------------------------------------------
+# Node.js / npm dependencies
+# -----------------------------------------------
+node_modules/
+package-lock.json
+
+# -----------------------------------------------
+# Environment / Secret files
+# -----------------------------------------------
+.env
+.env.*
+.env.local
+.env.production
+
+# -----------------------------------------------
+# Junk / Saved browser search pages
+# (These are downloaded Google Image search results
+#  and have no relation to the project)
+# -----------------------------------------------
+inorbit mall - Search Images.html
+inorbit mall - Search Images_files/
+
+# -----------------------------------------------
+# Unlinked / Unused root-level images
+# (Not referenced in index.html)
+# -----------------------------------------------
+CMR-central.jpg
+Shopping-mall-Prague.webp
+
+# -----------------------------------------------
+# Unlinked asset files
+# (assets/ files not referenced in index.html)
+# -----------------------------------------------
+assets/Shopping-mall-Prague.webp
+assets/gallery_cinema.png
+
+# -----------------------------------------------
+# Empty / Unrelated folders
+# -----------------------------------------------
+aspect/
+HealthcarePlatform/
+
+# -----------------------------------------------
+# OS & Editor generated files
+# -----------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# -----------------------------------------------
+# Build outputs (if any are added later)
+# -----------------------------------------------
+dist/
+build/

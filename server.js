@@ -1,97 +1,72 @@
 // =============================================================================
-// server.js  —  Star City Mall Backend
+// server.js  —  Star City Mall  |  Express.js + MongoDB Backend
 // -----------------------------------------------------------------------------
-// LEARN: This file uses ONLY the Node.js built-in "http" module + the official
-//        MongoDB Node.js driver. No Express, no Fastify — pure Node.js.
+// MERN Stack:  MongoDB  +  Express  +  Node.js
 //
-// KEY CONCEPTS YOU WILL LEARN HERE:
-//  1. Creating an HTTP server with Node's built-in "http" module
-//  2. Routing requests manually (no framework router)
-//  3. Parsing a JSON request body using streams (data events)
-//  4. Connecting to MongoDB using the native MongoClient
-//  5. Writing documents to a MongoDB collection (insertOne)
-//  6. Reading documents from a MongoDB collection (find / toArray)
-//  7. Serving static files (HTML, CSS, JS, images) from disk
-//  8. CORS headers — allowing the browser to call our API
+// API Routes:
+//   POST   /api/contact             → Submit contact form (public)
+//   GET    /api/contacts            → List all contacts   (admin)
+//   PATCH  /api/contacts/:id/status → Mark read/unread    (admin)
+//   DELETE /api/contacts/:id        → Delete contact      (admin)
+//
+//   GET    /api/reviews             → List reviews  (public)
+//   POST   /api/reviews             → Add review    (admin)
+//   PUT    /api/reviews/:id         → Edit review   (admin)
+//   DELETE /api/reviews/:id         → Delete review (admin)
+//
+//   GET    /api/stores              → List stores   (public)
+//   POST   /api/stores              → Add store     (admin)
+//   PUT    /api/stores/:id          → Edit store    (admin)
+//   DELETE /api/stores/:id          → Delete store  (admin)
+//
+//   POST   /api/auth/login          → Admin login  → returns JWT
+//   GET    /api/auth/verify         → Verify JWT   (admin)
+//
+// Static:
+//   GET  /         → index.html (public site)
+//   GET  /admin    → admin/index.html (admin panel)
 // =============================================================================
 
-// ─── 1. IMPORT BUILT-IN NODE.JS MODULES ─────────────────────────────────────
-// "http"   → lets us create a web server that listens for requests
-// "fs"     → lets us read files from disk (serving index.html, style.css, etc.)
-// "path"   → constructs OS-safe file paths (works on Windows & Linux)
-// "url"    → parses the request URL into parts (pathname, query params)
-const http = require('http');
-const fs   = require('fs');
-const path = require('path');
-const url  = require('url');
+// Load environment variables from .env file FIRST
+require('dotenv').config();
 
-// ─── 2. IMPORT MONGODB NATIVE DRIVER ─────────────────────────────────────────
-// LEARN: MongoClient is the main class that manages the connection pool to MongoDB.
-// We "require" it from the "mongodb" package we installed via npm.
+const express        = require('express');
+const cors           = require('cors');
+const path           = require('path');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 
-// =============================================================================
-// CONFIGURATION — change these values to match your environment
-// =============================================================================
-const CONFIG = {
-  // The MongoDB connection string.
-  // LEARN: "localhost:27017" is the default MongoDB port on a local machine.
-  //        If you use MongoDB Atlas (cloud), replace this with your Atlas URI.
-  MONGO_URI: 'mongodb://localhost:27017',
-
-  // The database name that matches what you see in MongoDB Compass: "balaji"
-  DB_NAME: 'balaji',
-
-  // Collections (like tables in SQL)
-  COLLECTIONS: {
-    CONTACTS: 'contacts',   // stores contact form submissions
-    REVIEWS:  'reviews',    // stores customer testimonials
-    STORES:   'stores',     // stores directory data
-  },
-
-  // The port our HTTP server will listen on
-  PORT: 3000,
-
-  // The folder where our static files (index.html, style.css, etc.) live
-  // __dirname = the directory of this server.js file
-  STATIC_DIR: __dirname,
-};
+// ─── Import Route Modules ─────────────────────────────────────────────────────
+const authRoutes    = require('./routes/auth');
+const contactRoutes = require('./routes/contact');
+const reviewRoutes  = require('./routes/reviews');
+const storeRoutes   = require('./routes/stores');
 
 // =============================================================================
-// MIME TYPE MAP
-// LEARN: MIME types tell the browser WHAT kind of file we're sending so it can
-//        render it correctly (e.g. "text/css" → apply as stylesheet).
+// EXPRESS APP SETUP
 // =============================================================================
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.css':  'text/css; charset=utf-8',
-  '.js':   'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png':  'image/png',
-  '.webp': 'image/webp',
-  '.jpg':  'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif':  'image/gif',
-  '.svg':  'image/svg+xml',
-  '.ico':  'image/x-icon',
-  '.woff2':'font/woff2',
-  '.woff': 'font/woff',
-};
+const app  = express();
+const PORT = process.env.PORT || 3000;
+
+// ── Middleware ────────────────────────────────────────────────────────────────
+app.use(cors());                              // Allow cross-origin requests
+app.use(express.json({ limit: '1mb' }));     // Parse JSON bodies
+app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
+
+// ── Static File Serving ───────────────────────────────────────────────────────
+// Serve public site files (index.html, style.css, script.js, assets/)
+app.use(express.static(path.join(__dirname)));
+
+// Serve admin panel files from /admin directory
+app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
 // =============================================================================
 // MONGODB CONNECTION
-// LEARN: We use a single MongoClient instance shared across ALL requests.
-//        Creating a new connection per request would be very slow and wasteful.
 // =============================================================================
-let db; // This will hold the database object once connected
-
 async function connectToMongoDB() {
   try {
     console.log('🔌 Connecting to MongoDB...');
 
-    // LEARN: MongoClient.connect() opens the connection pool.
-    //        serverApi: ServerApiVersion.v1 ensures stable API behaviour.
-    const client = new MongoClient(CONFIG.MONGO_URI, {
+    const client = new MongoClient(process.env.MONGO_URI || 'mongodb://localhost:27017', {
       serverApi: {
         version: ServerApiVersion.v1,
         strict: true,
@@ -100,362 +75,123 @@ async function connectToMongoDB() {
     });
 
     await client.connect();
+    const db = client.db(process.env.DB_NAME || 'balaji');
 
-    // LEARN: .db(name) selects which database to use.
-    //        This matches "balaji" in your MongoDB Compass sidebar.
-    db = client.db(CONFIG.DB_NAME);
-
-    // Verify connection with a ping
+    // Ping to confirm connection
     await db.command({ ping: 1 });
-    console.log(`✅ MongoDB connected successfully → database: "${CONFIG.DB_NAME}"`);
+    console.log(`✅ MongoDB connected → database: "${process.env.DB_NAME || 'balaji'}"`);
 
-    // Seed sample reviews if the collection is empty (so the site has content)
-    await seedReviewsIfEmpty();
+    // Share the db object with all routes via app.locals
+    app.locals.db = db;
 
+    // Seed sample data if collections are empty
+    await seedInitialData(db);
+
+    return db;
   } catch (err) {
     console.error('❌ MongoDB connection failed:', err.message);
     console.error('   Make sure MongoDB is running on localhost:27017');
-    // We don't crash the server — static files will still be served
+    // App continues — API routes will return 500, but static files still served
   }
 }
 
 // =============================================================================
-// SEED FUNCTION — populates initial reviews data
-// LEARN: "Seeding" means inserting default data so the app works out-of-the-box.
-//        insertMany() inserts multiple documents in one round-trip to MongoDB.
+// SEED FUNCTION — Insert default data so the site works out of the box
 // =============================================================================
-async function seedReviewsIfEmpty() {
-  const collection = db.collection(CONFIG.COLLECTIONS.REVIEWS);
-  const count = await collection.countDocuments();
-
-  if (count === 0) {
-    console.log('🌱 Seeding reviews collection with sample data...');
-
-    await collection.insertMany([
+async function seedInitialData(db) {
+  // --- Seed Reviews ---
+  const reviewsCol = db.collection('reviews');
+  if ((await reviewsCol.countDocuments()) === 0) {
+    console.log('🌱 Seeding reviews collection...');
+    await reviewsCol.insertMany([
       {
-        name:    'Sarah Jenkins',
-        role:    'Fashion Enthusiast',
-        rating:  5,
-        text:    'Amazing shopping experience! Star City Mall has all my favorite brands under one roof. The food court is exceptionally clean and the interior is beautiful.',
-        avatar:  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80',
+        name: 'Sarah Jenkins', role: 'Fashion Enthusiast', rating: 5,
+        text: 'Amazing shopping experience! Star City Mall has all my favorite brands under one roof. The food court is exceptionally clean and the interior is beautiful.',
+        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80',
         createdAt: new Date(),
       },
       {
-        name:    'David Chen',
-        role:    'Tech Consultant',
-        rating:  4,
-        text:    'The electronics section here is top-notch. I bought my new laptop yesterday, and the staff guidance was amazing. The EV charging stations are very convenient.',
-        avatar:  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
+        name: 'David Chen', role: 'Tech Consultant', rating: 4,
+        text: 'The electronics section here is top-notch. I bought my new laptop yesterday, and the staff guidance was amazing. The EV charging stations are very convenient.',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
         createdAt: new Date(),
       },
       {
-        name:    'Amanda Miller',
-        role:    'Family Visitor',
-        rating:  5,
-        text:    'A perfect place for a family weekend! My kids loved the play zone, and the IMAX cinema was incredible. Truly premium vibe and extremely secure.',
-        avatar:  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=150&h=150&q=80',
+        name: 'Amanda Miller', role: 'Family Visitor', rating: 5,
+        text: 'A perfect place for a family weekend! My kids loved the play zone, and the IMAX cinema was incredible. Truly premium vibe and extremely secure.',
+        avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=150&h=150&q=80',
         createdAt: new Date(),
       },
     ]);
+    console.log('✅ Reviews seeded → balaji.reviews');
+  }
 
-    console.log('✅ Reviews seeded into MongoDB "balaji.reviews" collection');
+  // --- Seed Stores ---
+  const storesCol = db.collection('stores');
+  if ((await storesCol.countDocuments()) === 0) {
+    console.log('🌱 Seeding stores collection...');
+    await storesCol.insertMany([
+      { name: 'Fashion Zone',     zone: 'Fashion',       floor: 'Level 1', description: 'Luxury couture, modern streetwear, and global apparel.', icon: 'fa-solid fa-shirt',         storeCount: 45, createdAt: new Date() },
+      { name: 'Lifestyle Store',  zone: 'Lifestyle',     floor: 'Level 2', description: 'Boutique home decor, luxury goods, and cosmetic lounges.', icon: 'fa-solid fa-couch',        storeCount: 32, createdAt: new Date() },
+      { name: 'Electronics Hub',  zone: 'Electronics',   floor: 'Level 2', description: 'Latest flagships in tech, home automation, and gaming rigs.', icon: 'fa-solid fa-laptop',  storeCount: 18, createdAt: new Date() },
+      { name: 'Food Court',       zone: 'Dining',        floor: 'Level 3', description: 'Michelin-starred bistros, global cuisines, artisanal desserts.', icon: 'fa-solid fa-utensils', storeCount: 28, createdAt: new Date() },
+      { name: 'Kids World',       zone: 'Entertainment', floor: 'Level 3', description: 'Arcade zones, toy superstores, indoor mini-playgrounds.', icon: 'fa-solid fa-child',          storeCount: 15, createdAt: new Date() },
+      { name: 'Cinema Zone',      zone: 'Entertainment', floor: 'Level 4', description: '8-screen IMAX theater complex with fully reclining leather seats.', icon: 'fa-solid fa-film', storeCount: 8,  createdAt: new Date() },
+    ]);
+    console.log('✅ Stores seeded → balaji.stores');
   }
 }
 
 // =============================================================================
-// HELPER — Send a JSON API response
-// LEARN: We manually set headers because there is no framework to do it for us.
-//        "Access-Control-Allow-Origin: *" = CORS header that allows ANY website
-//        (or our frontend at a different port) to call this API endpoint.
+// MOUNT API ROUTES
 // =============================================================================
-function sendJSON(res, statusCode, data) {
-  res.writeHead(statusCode, {
-    'Content-Type':                'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',  // CORS: allow browser fetch() calls
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  });
-  res.end(JSON.stringify(data));
-}
+app.use('/api/auth',     authRoutes);
+app.use('/api/contact',  contactRoutes);   // POST /api/contact  (public form)
+app.use('/api/contacts', contactRoutes);   // GET/DELETE/PATCH /api/contacts/* (admin)
+app.use('/api/reviews',  reviewRoutes);
+app.use('/api/stores',   storeRoutes);
 
 // =============================================================================
-// HELPER — Read the full JSON body from a POST request using Node.js streams
-// LEARN: HTTP requests arrive in "chunks" (stream). We collect all chunks into
-//        a buffer array, join them, then JSON.parse the final string.
-//        This is exactly what Express's express.json() middleware does internally.
+// SPA FALLBACK ROUTES
 // =============================================================================
-function readJSONBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];           // array to accumulate incoming data chunks
+// /admin/* → serve admin panel SPA
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin', 'index.html'));
+});
 
-    // "data" event fires for each chunk received
-    req.on('data', (chunk) => {
-      chunks.push(chunk);
-
-      // Safety: reject if body exceeds 1MB to prevent memory attacks
-      const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-      if (totalLength > 1_000_000) {
-        reject(new Error('Request body too large'));
-      }
-    });
-
-    // "end" event fires when all chunks have been received
-    req.on('end', () => {
-      try {
-        const rawBody = Buffer.concat(chunks).toString('utf-8');
-        resolve(JSON.parse(rawBody));
-      } catch {
-        reject(new Error('Invalid JSON body'));
-      }
-    });
-
-    // "error" event fires on network issues
-    req.on('error', reject);
-  });
-}
+// All other GET requests → serve public index.html (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // =============================================================================
-// HELPER — Serve a static file from disk
-// LEARN: fs.createReadStream() sends the file in chunks directly to the
-//        response without loading the whole file into memory first.
-//        This is memory-efficient for large images/files.
-// =============================================================================
-function serveStaticFile(res, filePath) {
-  // Resolve the full absolute path
-  const absPath = path.join(CONFIG.STATIC_DIR, filePath);
-
-  // Security check: prevent directory traversal attacks like "../../etc/passwd"
-  if (!absPath.startsWith(CONFIG.STATIC_DIR)) {
-    sendJSON(res, 403, { error: 'Forbidden' });
-    return;
-  }
-
-  // Check if file exists
-  fs.access(absPath, fs.constants.F_OK, (err) => {
-    if (err) {
-      // File not found → serve index.html (single-page app fallback)
-      serveStaticFile(res, '/index.html');
-      return;
-    }
-
-    // Determine MIME type from file extension
-    const ext  = path.extname(absPath).toLowerCase();
-    const mime = MIME_TYPES[ext] || 'application/octet-stream';
-
-    res.writeHead(200, { 'Content-Type': mime });
-
-    // LEARN: Pipe streams the file directly to the HTTP response output stream
-    //        without ever loading the whole file into RAM.
-    const fileStream = fs.createReadStream(absPath);
-    fileStream.pipe(res);
-    fileStream.on('error', () => {
-      res.end(); // close connection on read error
-    });
-  });
-}
-
-// =============================================================================
-// VALIDATION — Validate incoming contact form data on the server side
-// LEARN: NEVER trust only the client (browser) validation. Always validate
-//        on the server too. Users can bypass browser JS with tools like curl.
-// =============================================================================
-function validateContactData(data) {
-  const errors = [];
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-  if (!data.name   || data.name.trim().length   < 3)  errors.push('Name must be at least 3 characters');
-  if (!data.email  || !emailRegex.test(data.email.trim()))  errors.push('A valid email is required');
-  if (!data.subject|| data.subject.trim().length < 5)  errors.push('Subject must be at least 5 characters');
-  if (!data.message|| data.message.trim().length < 15) errors.push('Message must be at least 15 characters');
-
-  return errors;
-}
-
-// =============================================================================
-// API ROUTE HANDLERS
-// =============================================================================
-
-// ── POST /api/contact ────────────────────────────────────────────────────────
-// Saves a contact form submission into MongoDB "balaji.contacts" collection
-async function handlePostContact(req, res) {
-  try {
-    // 1. Parse the JSON body sent by the browser
-    const body = await readJSONBody(req);
-
-    // 2. Server-side validation
-    const errors = validateContactData(body);
-    if (errors.length > 0) {
-      return sendJSON(res, 422, { success: false, errors });
-    }
-
-    // 3. Build the document to insert
-    //    LEARN: Always sanitize input — .trim() removes leading/trailing spaces
-    const contactDoc = {
-      name:      body.name.trim(),
-      email:     body.email.trim().toLowerCase(),
-      subject:   body.subject.trim(),
-      message:   body.message.trim(),
-      createdAt: new Date(),   // MongoDB stores this as a proper Date object
-      status:    'unread',     // useful for an admin dashboard later
-    };
-
-    // 4. Insert into MongoDB
-    //    LEARN: insertOne() returns a result with insertedId = the new _id
-    if (!db) throw new Error('Database not connected');
-    const result = await db.collection(CONFIG.COLLECTIONS.CONTACTS).insertOne(contactDoc);
-
-    console.log(`📬 New contact saved → _id: ${result.insertedId} | from: ${contactDoc.email}`);
-
-    // 5. Send success response
-    sendJSON(res, 201, {
-      success: true,
-      message: 'Your message has been saved! Our team will respond within 24 hours.',
-      id: result.insertedId,
-    });
-
-  } catch (err) {
-    console.error('❌ POST /api/contact error:', err.message);
-    sendJSON(res, 500, { success: false, error: 'Server error. Please try again later.' });
-  }
-}
-
-// ── GET /api/reviews ─────────────────────────────────────────────────────────
-// Returns all reviews from MongoDB "balaji.reviews" collection
-async function handleGetReviews(req, res) {
-  try {
-    if (!db) throw new Error('Database not connected');
-
-    // LEARN: .find({}) → fetch ALL documents in the collection
-    //        .sort({ createdAt: -1 }) → newest first  (-1 = descending)
-    //        .toArray() → convert the cursor to a plain JavaScript array
-    const reviews = await db
-      .collection(CONFIG.COLLECTIONS.REVIEWS)
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    sendJSON(res, 200, { success: true, count: reviews.length, reviews });
-
-  } catch (err) {
-    console.error('❌ GET /api/reviews error:', err.message);
-    sendJSON(res, 500, { success: false, error: 'Could not load reviews.' });
-  }
-}
-
-// ── GET /api/contacts ────────────────────────────────────────────────────────
-// Returns all stored contact submissions (useful for an admin panel)
-async function handleGetContacts(req, res) {
-  try {
-    if (!db) throw new Error('Database not connected');
-
-    const contacts = await db
-      .collection(CONFIG.COLLECTIONS.CONTACTS)
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    sendJSON(res, 200, { success: true, count: contacts.length, contacts });
-
-  } catch (err) {
-    console.error('❌ GET /api/contacts error:', err.message);
-    sendJSON(res, 500, { success: false, error: 'Could not load contacts.' });
-  }
-}
-
-// =============================================================================
-// MAIN REQUEST HANDLER
-// LEARN: Every single HTTP request — whether it's for a web page, an image,
-//        or an API call — arrives here. We manually route it based on:
-//          - req.method  → "GET", "POST", "OPTIONS", etc.
-//          - parsedUrl.pathname → "/", "/api/contact", "/style.css", etc.
-// =============================================================================
-async function requestHandler(req, res) {
-  const parsedUrl = url.parse(req.url, true); // true = also parse query string
-  const pathname  = parsedUrl.pathname;
-  const method    = req.method.toUpperCase();
-
-  // ── Handle CORS pre-flight requests ────────────────────────────────────────
-  // LEARN: Browsers send an OPTIONS "pre-flight" request before a POST/PUT to
-  //        check if the server allows cross-origin requests. We must reply OK.
-  if (method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin':  '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    });
-    res.end();
-    return;
-  }
-
-  // Log every request to the console for learning / debugging
-  console.log(`[${new Date().toLocaleTimeString()}] ${method} ${pathname}`);
-
-  // ── API Routes ──────────────────────────────────────────────────────────────
-  // LEARN: We check pathname and method to decide which handler to call.
-  //        This is exactly what a router (Express, Fastify) does internally.
-
-  if (pathname === '/api/contact' && method === 'POST') {
-    return handlePostContact(req, res);
-  }
-
-  if (pathname === '/api/reviews' && method === 'GET') {
-    return handleGetReviews(req, res);
-  }
-
-  if (pathname === '/api/contacts' && method === 'GET') {
-    return handleGetContacts(req, res);
-  }
-
-  // ── Static File Routes ──────────────────────────────────────────────────────
-  // LEARN: If the request is not an API call, we serve the file from disk.
-  //        "/" → serve index.html (the homepage)
-  if (method === 'GET') {
-    const filePath = pathname === '/' ? '/index.html' : pathname;
-    serveStaticFile(res, filePath);
-    return;
-  }
-
-  // ── Catch-all: Method Not Allowed ───────────────────────────────────────────
-  sendJSON(res, 405, { error: `Method ${method} not allowed` });
-}
-
-// =============================================================================
-// START THE SERVER
-// LEARN: http.createServer() creates a server. Every incoming request triggers
-//        "requestHandler". .listen() binds the server to a port so it can
-//        receive connections from the browser.
+// START SERVER
 // =============================================================================
 async function startServer() {
-  // First connect to MongoDB
   await connectToMongoDB();
 
-  // Create the HTTP server
-  const server = http.createServer(requestHandler);
-
-  // Start listening on the configured port
-  server.listen(CONFIG.PORT, () => {
+  app.listen(PORT, () => {
     console.log('');
-    console.log('╔══════════════════════════════════════════════════╗');
-    console.log('║   🌟  Star City Mall Server is Running!          ║');
-    console.log('╠══════════════════════════════════════════════════╣');
-    console.log(`║   🌐  Website  → http://localhost:${CONFIG.PORT}           ║`);
-    console.log(`║   📬  API POST → http://localhost:${CONFIG.PORT}/api/contact  ║`);
-    console.log(`║   ⭐  Reviews  → http://localhost:${CONFIG.PORT}/api/reviews  ║`);
-    console.log(`║   📋  Contacts → http://localhost:${CONFIG.PORT}/api/contacts ║`);
-    console.log(`║   🗄️   Database → MongoDB "${CONFIG.DB_NAME}"              ║`);
-    console.log('╚══════════════════════════════════════════════════╝');
+    console.log('╔══════════════════════════════════════════════════════════╗');
+    console.log('║   🌟  Star City Mall  |  Express + MongoDB Server        ║');
+    console.log('╠══════════════════════════════════════════════════════════╣');
+    console.log(`║   🌐  Public Site  → http://localhost:${PORT}               ║`);
+    console.log(`║   🔐  Admin Panel  → http://localhost:${PORT}/admin          ║`);
+    console.log(`║   📬  Contact API  → http://localhost:${PORT}/api/contact    ║`);
+    console.log(`║   ⭐  Reviews API  → http://localhost:${PORT}/api/reviews    ║`);
+    console.log(`║   🏬  Stores API   → http://localhost:${PORT}/api/stores     ║`);
+    console.log(`║   🗄️   Database    → MongoDB "balaji"                        ║`);
+    console.log('╚══════════════════════════════════════════════════════════╝');
+    console.log('');
+    console.log('  Admin Login Password: admin123  (change in .env)');
     console.log('');
   });
 
-  // Graceful shutdown: close the server cleanly on Ctrl+C
+  // Graceful shutdown on Ctrl+C
   process.on('SIGINT', () => {
-    console.log('\n⛔ Shutting down server gracefully...');
-    server.close(() => {
-      console.log('✅ Server closed. Goodbye!');
-      process.exit(0);
-    });
+    console.log('\n⛔ Shutting down gracefully...');
+    process.exit(0);
   });
 }
 
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
 startServer();
